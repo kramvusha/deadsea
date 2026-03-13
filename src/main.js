@@ -6,8 +6,8 @@ import singlePlayerSvg from './assets/single-player-btn.svg?raw'
 
 // ── Scene ──
 const scene = new THREE.Scene()
-scene.background = new THREE.Color(0x87ceeb)
-scene.fog = new THREE.FogExp2(0xadd8e6, 0.0008)
+scene.background = new THREE.Color(0x050510)
+scene.fog = new THREE.FogExp2(0x060614, 0.0006)
 
 const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 2000)
 camera.position.set(0, 12, 0)
@@ -20,17 +20,86 @@ renderer.toneMappingExposure = 1.2
 renderer.shadowMap.enabled = true
 document.body.appendChild(renderer.domElement)
 
-// ── Lights ──
-const sun = new THREE.DirectionalLight(0xfff4e0, 2.5)
-sun.position.set(100, 80, 50)
-sun.castShadow = true
-scene.add(sun)
-scene.add(new THREE.AmbientLight(0x9ec5ff, 0.8))
-scene.add(new THREE.HemisphereLight(0x87ceeb, 0x94b8c9, 0.6))
+// ── Starry sky ──
+const STAR_COUNT = 3000
+const starPositions = new Float32Array(STAR_COUNT * 3)
+const starColors = new Float32Array(STAR_COUNT * 3)
+const starSizes = new Float32Array(STAR_COUNT)
+
+for (let i = 0; i < STAR_COUNT; i++) {
+  const theta = Math.random() * Math.PI * 2
+  const phi = Math.acos(Math.random() * 0.8 + 0.2)
+  const r = 800 + Math.random() * 200
+
+  starPositions[i * 3] = r * Math.sin(phi) * Math.cos(theta)
+  starPositions[i * 3 + 1] = r * Math.cos(phi)
+  starPositions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta)
+
+  const tint = Math.random()
+  if (tint < 0.15) {
+    starColors[i * 3] = 0.7; starColors[i * 3 + 1] = 0.8; starColors[i * 3 + 2] = 1.0
+  } else if (tint < 0.25) {
+    starColors[i * 3] = 1.0; starColors[i * 3 + 1] = 0.9; starColors[i * 3 + 2] = 0.7
+  } else {
+    const b = 0.85 + Math.random() * 0.15
+    starColors[i * 3] = b; starColors[i * 3 + 1] = b; starColors[i * 3 + 2] = b
+  }
+
+  starSizes[i] = 1.5 + Math.random() * 3.0
+}
+
+const starGeo = new THREE.BufferGeometry()
+starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3))
+starGeo.setAttribute('color', new THREE.BufferAttribute(starColors, 3))
+starGeo.setAttribute('size', new THREE.BufferAttribute(starSizes, 1))
+
+const starMat = new THREE.ShaderMaterial({
+  uniforms: { uTime: { value: 0 } },
+  vertexShader: `
+    attribute float size;
+    attribute vec3 color;
+    varying vec3 vColor;
+    varying float vSize;
+    uniform float uTime;
+    void main() {
+      vColor = color;
+      vSize = size;
+      vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+      gl_PointSize = size * (300.0 / -mvPosition.z);
+      gl_Position = projectionMatrix * mvPosition;
+    }
+  `,
+  fragmentShader: `
+    varying vec3 vColor;
+    varying float vSize;
+    uniform float uTime;
+    void main() {
+      float d = length(gl_PointCoord - vec2(0.5));
+      if (d > 0.5) discard;
+      float glow = exp(-d * d * 8.0);
+      float twinkle = 0.85 + 0.15 * sin(uTime * (2.0 + vSize) + vSize * 10.0);
+      gl_FragColor = vec4(vColor * glow * twinkle, glow);
+    }
+  `,
+  transparent: true,
+  depthWrite: false,
+  blending: THREE.AdditiveBlending,
+})
+
+const stars = new THREE.Points(starGeo, starMat)
+scene.add(stars)
+
+// ── Lights (night) ──
+const moon = new THREE.DirectionalLight(0x8899cc, 1.2)
+moon.position.set(100, 80, 50)
+moon.castShadow = true
+scene.add(moon)
+scene.add(new THREE.AmbientLight(0x223344, 0.6))
+scene.add(new THREE.HemisphereLight(0x112244, 0x0a0a15, 0.4))
 
 // ── Ground (desert road) ──
 const groundGeo = new THREE.PlaneGeometry(2000, 2000)
-const groundMat = new THREE.MeshLambertMaterial({ color: 0xc2b280 })
+const groundMat = new THREE.MeshLambertMaterial({ color: 0x6b5c3e })
 const ground = new THREE.Mesh(groundGeo, groundMat)
 ground.rotation.x = -Math.PI / 2
 ground.position.y = 0
@@ -38,7 +107,7 @@ ground.receiveShadow = true
 scene.add(ground)
 
 const roadGeo = new THREE.PlaneGeometry(20, 2000)
-const roadMat = new THREE.MeshLambertMaterial({ color: 0x333333 })
+const roadMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a })
 const road = new THREE.Mesh(roadGeo, roadMat)
 road.rotation.x = -Math.PI / 2
 road.position.y = 0.05
@@ -670,6 +739,9 @@ function animate() {
   updateExplosions(dt)
   updateMuzzleFlash(dt)
   updateHUD()
+
+  stars.position.copy(camera.position)
+  starMat.uniforms.uTime.value = t
 
   renderer.render(scene, camera)
 }
